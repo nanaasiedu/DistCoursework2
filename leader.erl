@@ -1,7 +1,11 @@
 -module(leader).
 -export([start/0, scout/3, commander/4]).
 
-start(Acceptors, Replicas) ->
+start() ->
+  receive
+    {bind, Acceptors, Replicas} -> received
+  end,
+
   Ballot_num = {0, self()},
   Active     = false,
   Proposals  = [],
@@ -11,8 +15,8 @@ start(Acceptors, Replicas) ->
 next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
   receive
     {propose, Slot, Command} ->
-      NumSlotProposals = len([1 || P <- Proposals, P = {Slot, _}]),
-      if NumSlotProposals == 0 ->
+      SlotNotInProposals = not slot_in_proposals(Slot, Proposals),
+      if SlotNotInProposals ->
         Proposals2 = Proposals ++ [{Slot, Command}],
 
         if Active ->
@@ -27,14 +31,14 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
 
     {adopted, A_Ballot, Pvalues} ->
       Proposals2 = [{Slot, Command} || {Slot, Command} <- Proposals,
-                                      len([1 || P <- Proposals, P = {Slot, _}]) == 0]
+                                       not slot_in_proposals(Slot, Proposals)]
                    ++ Pvalues,
 
-      [spawn(leader, commander, [self(), Acceptors, Replicas, {Ballot_num, Slot, Command}])
+      [spawn(leader, commander, [self(), Acceptors, Replicas, {A_Ballot, Slot, Command}])
        || {Slot, Command} <- Proposals2],
 
       Active2 = true,
-      next(Acceptors, Replicas, Ballot_num, Active2, Proposals2);
+      next(Acceptors, Replicas, A_Ballot, Active2, Proposals2);
 
     {preempted, {Replica, {A_Ballot, ID}}} ->
       {Ballot, _}   = Ballot_num, %CHECKKK
@@ -50,8 +54,14 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
       next(Acceptors, Replicas, Ballot_num2, Active2, Proposals)
   end.
 
+slot_in_proposals(Slot, []) -> false;
+
+slot_in_proposals(Slot, [{Slot, _} | _]) -> true;
+
+slot_in_proposals(Slot, [H | T]) -> slot_in_proposals(Slot, T).
+
 scout(Leader_pid, Acceptors, Ballot) ->
-  [Acceptor ! {phase1a, self(), Ballot} | Acceptor <- Acceptors],
+  [Acceptor ! {phase1a, self(), Ballot} || Acceptor <- Acceptors],
   scout(Leader_pid, Acceptors, Ballot, Acceptors, []).
 
 scout(Leader_pid, Acceptors, Ballot, WaitFor, Pvalues) ->
@@ -63,20 +73,20 @@ scout(Leader_pid, Acceptors, Ballot, WaitFor, Pvalues) ->
           WaitFor2  = lists:delete(Acceptor, WaitFor),
 
           if
-            len(WaitFor2) < len(Acceptors)/2 ->
+            length(WaitFor2) < length(Acceptors)/2 ->
               Leader_pid ! {adopted, Ballot, Pvalues2},
-              exit();
+              exit(normal);
             true -> scout(Leader_pid, Acceptors, Ballot, WaitFor2, Pvalues2)
           end;
 
         true ->
           Leader_pid ! {preempted, A_Ballot},
-          exit()
-      end.
+          exit(normal)
+      end
   end.
 
 commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}) ->
-  [Acceptor ! {phase2a, self(), {Ballot, Slot, Command}} | Acceptor <- Acceptors],
+  [Acceptor ! {phase2a, self(), {Ballot, Slot, Command}} || Acceptor <- Acceptors],
   commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}, Acceptors).
 
 commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}, WaitFor) ->
@@ -84,12 +94,12 @@ commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}, WaitFor) ->
     {phase2b, Acceptor, A_Ballot} ->
       if
         A_Ballot == Ballot ->
-          WaitFor2 = lists:delete(Acceptor, Waitfor),
+          WaitFor2 = lists:delete(Acceptor, WaitFor),
 
           if
-            len(WaitFor2) < len(Acceptors)/2 ->
-              [Replica ! {decision, Slot, Command} | Replica <- Replicas],
-              exit();
+            length(WaitFor2) < length(Acceptors)/2 ->
+              [Replica ! {decision, Slot, Command} || Replica <- Replicas],
+              exit(normal);
 
             true ->
               commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}, WaitFor2)
@@ -97,7 +107,7 @@ commander(Leader_pid, Acceptors, Replicas, {Ballot, Slot, Command}, WaitFor) ->
 
         true ->
           Leader_pid ! {preempted, A_Ballot},
-          exit()
+          exit(normal)
 
       end
   end.
