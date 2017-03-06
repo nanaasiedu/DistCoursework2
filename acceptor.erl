@@ -6,17 +6,16 @@ start() ->
 
 next(Ballot_num, Accepted) ->
   receive
-    {phase1a, Leader_id, Ballot} ->
+    {phase1a, Leader_pid, Ballot} ->
       if
         Ballot > Ballot_num -> Ballot_num2 = Ballot;
         true                -> Ballot_num2 = Ballot_num
       end,
 
-      Leader ! {phase1b, self(), Ballot_num2, Accepted},
+      Leader_pid ! {phase1b, self(), Ballot_num2, Accepted},
       next(Ballot_num2, Accepted);
 
-
-    {phase2a, Leader_id, {Ballot, Slot_num, Command}} ->
+    {phase2a, Leader_pid, {Ballot, Slot_num, Command}} ->
       if
         Ballot == Ballot_num ->
           Accepted2 = Accepted ++ [{Ballot, Slot_num, Command}];
@@ -24,7 +23,7 @@ next(Ballot_num, Accepted) ->
           Accepted2 = Accepted
       end,
 
-      Leader ! {phase2b, self(), Ballot_num},
+      Leader_pid ! {phase2b, self(), Ballot_num},
       next(Ballot_num, Accepted2)
 
   end.
