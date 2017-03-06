@@ -19,7 +19,7 @@ next(Ballot_num, Accepted) ->
     {phase2a, Leader_id, {Ballot, Slot_num, Command}} ->
       if
         Ballot == Ballot_num ->
-          Accepted2 = Accepted ++ `[{Ballot, Slot_num, Command}];
+          Accepted2 = Accepted ++ [{Ballot, Slot_num, Command}];
         true ->
           Accepted2 = Accepted
       end,
