@@ -40,7 +40,7 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
       Active2 = true,
       next(Acceptors, Replicas, A_Ballot, Active2, Proposals2);
 
-    {preempted, {Replica, {A_Ballot, ID}}} ->
+    {preempted, {A_Ballot, ID}} ->
       {Ballot, _}   = Ballot_num, %CHECKKK
 
       if A_Ballot > Ballot ->
