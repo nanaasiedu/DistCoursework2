@@ -4,7 +4,7 @@
 
 .SUFFIXES: .erl .beam
 
-MODULES  = acceptor client database leader server system
+MODULES  = acceptor client database leader server system replica
 
 # BUILD =======================================================
 

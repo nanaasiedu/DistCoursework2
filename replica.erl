@@ -11,33 +11,35 @@ start(Database) ->
        next(Database, 1, 1, [], [], [], Leaders)
   end.
 
-next(State, Slot_in, Slot_out, Request, Proposals, Decision, Leaders) ->
+next(State, Slot_in, Slot_out, Requests, Proposals, Decisions, Leaders) ->
   receive
     {request, C} ->      % request from client
-      Request2 = Request ++ [C],
-      {Decisions2, Slot_in2, Proposals2} = {Decision, Slot_in, Proposals},
+      Requests2 = Requests ++ [C],
+      {Decisions2, Slot_in2, Proposals2} = {Decisions, Slot_in, Proposals},
       Slot_out2 = Slot_out;
 
     {decision, S, C} ->  % decision from commander
       Decisions2 = Decisions ++ [{S, C}],
-      {Slot_out2, Proposals2, Requests2} = decide (Decisions2),
+      {Slot_out2, Proposals2, Requests2}
+        = decide (Decisions2, State, Proposals, Requests, Slot_out),
       Slot_in2 = Slot_in
 
   end, % receive
 
   {Slot_in3, Proposals3, Requests3} = propose(Slot_in2, Slot_out2, Proposals2,
                                               Requests2, Leaders, Decisions2),
-  next(State, Slot_in3, Slot_out2, Request3, Proposals3, Decision2, Leaders).
+  next(State, Slot_in3, Slot_out2, Requests3, Proposals3, Decisions2, Leaders).
 
 propose(Slot_in, Slot_out, Proposals, Requests, Leaders, Decisions) ->
   WINDOW = 5,
-  if (Slot_in < (Slot_out + WINDOW)) and (length(Request) > 0) ->
-    [C | Rest_request] = Request,
+  if (Slot_in < (Slot_out + WINDOW)) and (length(Requests) > 0) ->
+    C = hd(Requests),
 
-    if not slot_in_lists(Slot_in, Decisions) ->
+    Slot_in_list = slot_in_lists(Slot_in, Decisions),
+    if not Slot_in_list ->
       Requests2  = lists:delete(C, Requests),
       Proposals2 = Proposals ++ [{Slot_in, C}],
-      [ Leader ! {propose, Slot_in, C} | Leader <- Leaders];
+      [ Leader ! {propose, Slot_in, C} || Leader <- Leaders];
     true -> {Requests2, Proposals2} = {Requests, Proposals}
     end,
 
@@ -48,18 +50,18 @@ propose(Slot_in, Slot_out, Proposals, Requests, Leaders, Decisions) ->
   end.
 
 decide(Decisions, Database, Proposals, Requests, Slot_out) ->
-  C_Slotout_D = [ C | {S, C} <- Decisions, S == Slot_out ],
-  C_Slotout_P = [ {S, C} | {S, C} <- Proposals, S == Slot_out ]
+  C_Slotout_D = [ C || {S, C} <- Decisions, S == Slot_out ],
+  C_Slotout_P = [ {S, C} || {S, C} <- Proposals, S == Slot_out ],
   decide(Decisions, Database, Proposals, Requests, Slot_out,
          C_Slotout_D, C_Slotout_P).
 
 decide(Decisions, Database, Proposals, Requests, Slot_out,
        [C | Rest], []) ->
-  Slot_out2 = perform(Database, C, Decision, Slot_out),
+  Slot_out2 = perform(Database, C, Decisions, Slot_out),
   decide(Decisions, Database, Proposals, Requests, Slot_out2,
-         Rest, []).
+         Rest, []);
 
-decide(Decisions, Database, Proposals, Requests, Slot_out, [], _) ->
+decide(_, _, Proposals, Requests, Slot_out, [], _) ->
   {Slot_out, Proposals, Requests};
 
 decide(Decisions, Database, Proposals, Requests, Slot_out,
@@ -71,12 +73,13 @@ decide(Decisions, Database, Proposals, Requests, Slot_out,
     true ->
       Requests
     end,
-  Slot_out2 = perform(Database, C, Decision, Slot_out),
+  Slot_out2 = perform(Database, C, Decisions, Slot_out),
   decide(Decisions, Database, Proposals2, Requests2, Slot_out2,
          RestD, RestP).
 
 perform(Database, {Client, Op, Cid}, Decisions, Slot_out) ->
-  Slot_out2 = if has_lower_slot(Slot_out, {Client, Op, Cid}, Decisions) ->
+  Has_lower = has_lower_slot(Slot_out, {Client, Op, Cid}, Decisions),
+  Slot_out2 = if Has_lower ->
                 Slot_out + 1;
               true ->
                 Slot_out
@@ -88,14 +91,14 @@ perform(Database, {Client, Op, Cid}, Decisions, Slot_out) ->
 
 has_lower_slot(Slot_out, C, [ {S, Cp} | Ds]) ->
   if
-    S < Slot_out and C == Cp -> true;
-    true                     -> has_lower_slot(Slot_out, C, Ds)
+    (S < Slot_out) and (C == Cp) -> true;
+    true                         -> has_lower_slot(Slot_out, C, Ds)
   end;
 
-has_lower_slot(Slot_out, C, []) -> false.
+has_lower_slot(_, _, []) -> false.
 
-slot_in_lists(Slot, []) -> false;
+slot_in_lists(_, []) -> false;
 
 slot_in_lists(Slot, [{Slot, _} | _]) -> true;
 
-slot_in_lists(Slot, [H | T]) -> slot_in_lists(Slot, T).
+slot_in_lists(Slot, [_ | T]) -> slot_in_lists(Slot, T).
