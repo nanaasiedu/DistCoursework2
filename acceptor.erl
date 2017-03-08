@@ -2,7 +2,7 @@
 -export([start/0]).
 
 start() ->
-  next(-1, sets:new()).
+  next(undefined, sets:new()).
 
 next(Ballot_num, Accepted) ->
   receive
@@ -22,8 +22,6 @@ next(Ballot_num, Accepted) ->
         true ->
           Accepted2 = Accepted
       end,
-
       Commander ! {phase2b, self(), Ballot_num},
       next(Ballot_num, Accepted2)
-
   end.

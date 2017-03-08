@@ -15,17 +15,17 @@ start() ->
 next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
   receive
     {propose, Slot, Command} ->
-      SlotNotInProposals = not slot_in_proposals(Slot, sets:to_list(Proposals)),
-      if SlotNotInProposals ->
-        Proposals2 = sets:add_element({Slot, Command}, Proposals),
+      case length([ 1 || { S, C } <- sets:to_list(Proposals), S == Slot ]) == 0 of
+        true ->
+          Proposals2 = sets:add_element({Slot, Command}, Proposals),
 
-        if Active ->
-          spawn(leader, commander,
-                [self(), Acceptors, Replicas, {Ballot_num, Slot, Command}]);
-        true -> nothing
-        end;
-
-      true -> Proposals2 = Proposals
+          case Active of
+            true ->
+              spawn(leader, commander,
+                    [self(), Acceptors, Replicas, {Ballot_num, Slot, Command}]);
+            false -> ok
+          end ;
+        false -> Proposals2 = Proposals
       end,
       next(Acceptors, Replicas, Ballot_num, Active, Proposals2);
 
@@ -55,11 +55,12 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
       next(Acceptors, Replicas, Ballot_num2, Active2, Proposals)
   end.
 
-slot_in_proposals(_, []) -> false;
-
-slot_in_proposals(Slot, [{Slot, _} | _]) -> true;
-
-slot_in_proposals(Slot, [_ | T]) -> slot_in_proposals(Slot, T).
+slot_in_proposals(Slot, List) ->
+  case List of
+    [ {Slot, _} | _ ] -> true ;
+    [ _ | T ] -> slot_in_proposals(Slot, T) ;
+    _ -> false
+  end.
 
 scout(Leader_pid, Acceptors, Ballot) ->
   [Acceptor ! {phase1a, self(), Ballot} || Acceptor <- Acceptors],

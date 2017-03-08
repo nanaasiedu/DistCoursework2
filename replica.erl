@@ -8,13 +8,13 @@
 start(Database) ->
   receive
     {bind, Leaders} ->
-       next(Database, 1, 1, [], [], [], Leaders)
+       next(Database, 1, 1, sets:new(), [], [], Leaders)
   end.
 
 next(State, Slot_in, Slot_out, Requests, Proposals, Decisions, Leaders) ->
   receive
     {request, C} ->      % request from client
-      Requests2 = Requests ++ [C],
+      Requests2 = sets:add_element(C, Requests),
       {Decisions2, Slot_in2, Proposals2} = {Decisions, Slot_in, Proposals},
       Slot_out2 = Slot_out;
 
@@ -32,12 +32,13 @@ next(State, Slot_in, Slot_out, Requests, Proposals, Decisions, Leaders) ->
 
 propose(Slot_in, Slot_out, Proposals, Requests, Leaders, Decisions) ->
   WINDOW = 5,
-  if (Slot_in < (Slot_out + WINDOW)) and (length(Requests) > 0) ->
-    C = hd(Requests),
+  RequestSize = sets:size(Requests),
+  if (Slot_in < (Slot_out + WINDOW)) and (RequestSize > 0) ->
+    C = hd(sets:to_list(Requests)),
 
     Slot_in_list = slot_in_lists(Slot_in, Decisions),
     if not Slot_in_list ->
-      Requests2  = lists:delete(C, Requests),
+      Requests2  = sets:del_element(C, Requests),
       Proposals2 = Proposals ++ [{Slot_in, C}],
       [ Leader ! {propose, Slot_in, C} || Leader <- Leaders];
     true -> {Requests2, Proposals2} = {Requests, Proposals}
@@ -69,7 +70,7 @@ decide(Decisions, Database, Proposals, Requests, Slot_out,
   Proposals2 = Proposals -- [{S, Cp}],
   Requests2 =
     if C /= Cp ->
-      Requests ++ [Cp];
+      sets:add_element(Cp, Requests);
     true ->
       Requests
     end,
@@ -77,7 +78,7 @@ decide(Decisions, Database, Proposals, Requests, Slot_out,
   decide(Decisions, Database, Proposals2, Requests2, Slot_out2,
          RestD, RestP).
 
-perform(Database, {Client, Op, Cid}, Decisions, Slot_out) ->
+perform(Database, {Client, Cid, Op}, Decisions, Slot_out) ->
   Has_lower = has_lower_slot(Slot_out, {Client, Op, Cid}, Decisions),
   Slot_out2 = if Has_lower ->
                 Slot_out + 1;

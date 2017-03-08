@@ -22,19 +22,22 @@ next(Replicas, N_accounts, Max_amount, Cid) ->
   Amount   = rand:uniform(Max_amount),
   Op   = {move, Amount, Account1, Account2},
   Cid2 = Cid + 1,
-  Cmd  = {self(), Op, Cid2},
+  Cmd  = {self(), Cid2, Op},
 
   [ Replica ! {request, Cmd} || Replica <- Replicas ],
 
   ignore_responses(),
 
   receive
-    finish  -> finish
-    after 0 -> next(Replicas, N_accounts, Max_amount, Cid2)
+    { finish } ->
+      ok
+  after 0 ->
+    next(Replicas, N_accounts, Max_amount, Cid2)
   end.
 
 ignore_responses() ->
   receive
-    {response, _Result} -> ignore_responses()
-    after 0 -> return
+    _ -> ignore_responses()
+  after 0 ->
+    ok
   end.
