@@ -8,16 +8,16 @@ start() ->
 
   Ballot_num = {0, self()},
   Active     = false,
-  Proposals  = [],
+  Proposals  = sets:new(),
   spawn(leader, scout, [self(), Acceptors, Ballot_num]),
   next(Acceptors, Replicas, Ballot_num, Active, Proposals).
 
 next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
   receive
     {propose, Slot, Command} ->
-      SlotNotInProposals = not slot_in_proposals(Slot, Proposals),
+      SlotNotInProposals = not slot_in_proposals(Slot, sets:to_list(Proposals)),
       if SlotNotInProposals ->
-        Proposals2 = Proposals ++ [{Slot, Command}],
+        Proposals2 = sets:add_element({Slot, Command}, Proposals),
 
         if Active ->
           spawn(leader, commander,
@@ -30,20 +30,21 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
       next(Acceptors, Replicas, Ballot_num, Active, Proposals2);
 
     {adopted, A_Ballot, Pvalues} ->
-      Proposals2 = [{Slot, Command} || {Slot, Command} <- Proposals,
-                                       not slot_in_proposals(Slot, Proposals)]
-                   ++ Pvalues,
+      PropLists  = sets:to_list(Proposals),
+      Proposals2 = sets:union(
+                     [sets:from_list([{Slot, Command} ||
+                        {Slot, Command} <- PropLists,
+                        not slot_in_proposals(Slot, PropLists)])
+                   , Pvalues]),
 
       [spawn(leader, commander, [self(), Acceptors, Replicas, {A_Ballot, Slot, Command}])
-       || {Slot, Command} <- Proposals2],
+       || {Slot, Command} <- sets:to_list(Proposals2)],
 
       Active2 = true,
       next(Acceptors, Replicas, A_Ballot, Active2, Proposals2);
 
     {preempted, {A_Ballot, ID}} ->
-      {Ballot, _}   = Ballot_num, %CHECKKK
-
-      if A_Ballot > Ballot ->
+      if {A_Ballot, ID} > Ballot_num ->
         Active2 = false,
         Ballot_num2 = {A_Ballot + 1, self()},
         spawn(leader, scout, [self(), Acceptors, Ballot_num2]);
@@ -54,22 +55,22 @@ next(Acceptors, Replicas, Ballot_num, Active, Proposals) ->
       next(Acceptors, Replicas, Ballot_num2, Active2, Proposals)
   end.
 
-slot_in_proposals(Slot, []) -> false;
+slot_in_proposals(_, []) -> false;
 
 slot_in_proposals(Slot, [{Slot, _} | _]) -> true;
 
-slot_in_proposals(Slot, [H | T]) -> slot_in_proposals(Slot, T).
+slot_in_proposals(Slot, [_ | T]) -> slot_in_proposals(Slot, T).
 
 scout(Leader_pid, Acceptors, Ballot) ->
   [Acceptor ! {phase1a, self(), Ballot} || Acceptor <- Acceptors],
-  scout(Leader_pid, Acceptors, Ballot, Acceptors, []).
+  scout(Leader_pid, Acceptors, Ballot, Acceptors, sets:new()).
 
 scout(Leader_pid, Acceptors, Ballot, WaitFor, Pvalues) ->
   receive
     {phase1b, Acceptor, A_Ballot, Accepted} ->
       if
         Ballot == A_Ballot ->
-          Pvalues2  = Pvalues ++ Accepted,
+          Pvalues2  = sets:union([Pvalues, Accepted]),
           WaitFor2  = lists:delete(Acceptor, WaitFor),
 
           if

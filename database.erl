@@ -8,7 +8,7 @@
 start(N_accounts, End_after) ->
   % add extra time for completion of all updates
   Extra_update_time = 1000,
-  timer:send_after(End_after + Extra_update_time, finish),  
+  timer:send_after(End_after + Extra_update_time, finish),
 
   % set all Balances to zero
   Balances = maps:from_list([ {N, 0} || N <- lists:seq(1, N_accounts) ]),

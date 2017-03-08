@@ -2,28 +2,28 @@
 -export([start/0]).
 
 start() ->
-  next(-1, []).
+  next(-1, sets:new()).
 
 next(Ballot_num, Accepted) ->
   receive
-    {phase1a, Leader_pid, Ballot} ->
+    {phase1a, Scout, Ballot} ->
       if
         Ballot > Ballot_num -> Ballot_num2 = Ballot;
         true                -> Ballot_num2 = Ballot_num
       end,
 
-      Leader_pid ! {phase1b, self(), Ballot_num2, Accepted},
+      Scout ! {phase1b, self(), Ballot_num2, Accepted},
       next(Ballot_num2, Accepted);
 
-    {phase2a, Leader_pid, {Ballot, Slot_num, Command}} ->
+    {phase2a, Commander, {Ballot, Slot_num, Command}} ->
       if
         Ballot == Ballot_num ->
-          Accepted2 = Accepted ++ [{Ballot, Slot_num, Command}];
+          Accepted2 = sets:add_element({Ballot, Slot_num, Command}, Accepted);
         true ->
           Accepted2 = Accepted
       end,
 
-      Leader_pid ! {phase2b, self(), Ballot_num},
+      Commander ! {phase2b, self(), Ballot_num},
       next(Ballot_num, Accepted2)
 
   end.
