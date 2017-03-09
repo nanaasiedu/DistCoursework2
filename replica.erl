@@ -8,18 +8,18 @@
 start(Database) ->
   receive
     {bind, Leaders} ->
-       next(Database, 1, 1, sets:new(), [], [], Leaders)
+       next(Database, 1, 1, sets:new(), maps:new(), maps:new(), Leaders)
   end.
 
 next(State, Slot_in, Slot_out, Requests, Proposals, Decisions, Leaders) ->
   receive
     {request, C} ->      % request from client
       Requests2 = sets:add_element(C, Requests),
-      {Decisions2, Slot_in2, Proposals2} = {Decisions, Slot_in, Proposals},
-      Slot_out2 = Slot_out;
+      {Slot_out2, Decisions2, Slot_in2, Proposals2} =
+        {Slot_out, Decisions, Slot_in, Proposals};
 
     {decision, S, C} ->  % decision from commander
-      Decisions2 = Decisions ++ [{S, C}],
+      Decisions2 = maps:put(S, C, Decisions),
       {Slot_out2, Proposals2, Requests2}
         = decide (Decisions2, State, Proposals, Requests, Slot_out),
       Slot_in2 = Slot_in
@@ -36,10 +36,10 @@ propose(Slot_in, Slot_out, Proposals, Requests, Leaders, Decisions) ->
   if (Slot_in < (Slot_out + WINDOW)) and (RequestSize > 0) ->
     C = hd(sets:to_list(Requests)),
 
-    Slot_in_list = slot_in_lists(Slot_in, Decisions),
-    if not Slot_in_list ->
+    Slot_in_map = maps:get(Slot_in, Decisions, -1) /= -1,
+    if not Slot_in_map ->
       Requests2  = sets:del_element(C, Requests),
-      Proposals2 = Proposals ++ [{Slot_in, C}],
+      Proposals2 = maps:put(Slot_in, C, Proposals),
       [ Leader ! {propose, Slot_in, C} || Leader <- Leaders];
     true -> {Requests2, Proposals2} = {Requests, Proposals}
     end,
@@ -51,35 +51,23 @@ propose(Slot_in, Slot_out, Proposals, Requests, Leaders, Decisions) ->
   end.
 
 decide(Decisions, Database, Proposals, Requests, Slot_out) ->
-  C_Slotout_D = [ C || {S, C} <- Decisions, S == Slot_out ],
-  C_Slotout_P = [ {S, C} || {S, C} <- Proposals, S == Slot_out ],
-  decide(Decisions, Database, Proposals, Requests, Slot_out,
-         C_Slotout_D, C_Slotout_P).
+  DC = maps:get(Slot_out, Decisions, -1),
 
-decide(Decisions, Database, Proposals, Requests, Slot_out,
-       [C | Rest], []) ->
-  Slot_out2 = perform(Database, C, Decisions, Slot_out),
-  decide(Decisions, Database, Proposals, Requests, Slot_out2,
-         Rest, []);
+  if DC == -1 -> {Slot_out, Proposals, Requests};
+  true        ->
+    PC = maps:get(Slot_out, Proposals, -1),
+    Requests2 =
+      if (PC /= DC) and (PC /= -1) -> sets:add_element(PC, Requests);
+         true                      -> Requests
+      end,
 
-decide(_, _, Proposals, Requests, Slot_out, [], _) ->
-  {Slot_out, Proposals, Requests};
-
-decide(Decisions, Database, Proposals, Requests, Slot_out,
-       [C | RestD], [ {S, Cp} | RestP]) ->
-  Proposals2 = Proposals -- [{S, Cp}],
-  Requests2 =
-    if C /= Cp ->
-      sets:add_element(Cp, Requests);
-    true ->
-      Requests
-    end,
-  Slot_out2 = perform(Database, C, Decisions, Slot_out),
-  decide(Decisions, Database, Proposals2, Requests2, Slot_out2,
-         RestD, RestP).
+    Proposals2 = maps:remove(Slot_out, Proposals),
+    Slot_out2 = perform(Database, DC, Decisions, Slot_out),
+    decide(Decisions, Database, Proposals2, Requests2, Slot_out2)
+  end.
 
 perform(Database, {Client, Cid, Op}, Decisions, Slot_out) ->
-  Has_lower = has_lower_slot(Slot_out, {Client, Op, Cid}, Decisions),
+  Has_lower = has_lower_slot(Decisions, Slot_out),
   Slot_out2 = if Has_lower ->
                 Slot_out + 1;
               true ->
@@ -90,16 +78,13 @@ perform(Database, {Client, Cid, Op}, Decisions, Slot_out) ->
   Client ! {response, Cid, ok},
   Slot_out3.
 
-has_lower_slot(Slot_out, C, [ {S, Cp} | Ds]) ->
-  if
-    (S < Slot_out) and (C == Cp) -> true;
-    true                         -> has_lower_slot(Slot_out, C, Ds)
-  end;
+has_lower_slot(Decisions, Slot) ->
+  has_lower_slot(Decisions, Slot, Slot - 1).
 
-has_lower_slot(_, _, []) -> false.
+has_lower_slot(_, _, 0) -> false;
 
-slot_in_lists(_, []) -> false;
-
-slot_in_lists(Slot, [{Slot, _} | _]) -> true;
-
-slot_in_lists(Slot, [_ | T]) -> slot_in_lists(Slot, T).
+has_lower_slot(Decisions, Slot, Curr) ->
+  case (maps:get(Curr, Decisions, -1) /= -1) of
+    true -> true;
+    false-> has_lower_slot(Decisions, Slot, Curr - 1)
+  end.
