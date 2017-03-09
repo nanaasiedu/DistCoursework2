@@ -23,7 +23,6 @@ next(State, Slot_in, Slot_out, Requests, Proposals, Decisions, Leaders) ->
       {Slot_out2, Proposals2, Requests2}
         = decide (Decisions2, State, Proposals, Requests, Slot_out),
       Slot_in2 = Slot_in
-
   end, % receive
 
   {Slot_in3, Proposals3, Requests3} = propose(Slot_in2, Slot_out2, Proposals2,
@@ -67,24 +66,21 @@ decide(Decisions, Database, Proposals, Requests, Slot_out) ->
   end.
 
 perform(Database, {Client, Cid, Op}, Decisions, Slot_out) ->
-  Has_lower = has_lower_slot(Decisions, Slot_out),
-  Slot_out2 = if Has_lower ->
-                Slot_out + 1;
-              true ->
-                Slot_out
-              end,
-  Database ! {execute, Op},
-  Slot_out3 = Slot_out2 + 1,
-  Client ! {response, Cid, ok},
-  Slot_out3.
+  Has_lower = has_lower_slot(Decisions, Slot_out, {Client, Cid, Op}),
+  if Has_lower -> nothing;
+     true      ->
+       Database ! {execute, Op},
+       Client   ! {response, Cid, ok}
+  end,
+  Slot_out + 1.
 
-has_lower_slot(Decisions, Slot) ->
-  has_lower_slot(Decisions, Slot, Slot - 1).
+has_lower_slot(Decisions, Slot, C) ->
+  has_lower_slot(Decisions, Slot, C, Slot - 1).
 
-has_lower_slot(_, _, 0) -> false;
+has_lower_slot(_, _, _, 0) -> false;
 
-has_lower_slot(Decisions, Slot, Curr) ->
-  case (maps:get(Curr, Decisions, -1) /= -1) of
+has_lower_slot(Decisions, Slot, C, Curr) ->
+  case (maps:get(Curr, Decisions, -1) == C) of
     true -> true;
-    false-> has_lower_slot(Decisions, Slot, Curr - 1)
+    false-> has_lower_slot(Decisions, Slot, C, Curr - 1)
   end.

@@ -10,12 +10,12 @@ start(Replicas, N_accounts, Max_amount, End_after) ->
   next(Replicas, N_accounts, Max_amount, 0).
 
 next(Replicas, N_accounts, Max_amount, Cid) ->
-  % Warning removing sleep will completely overload the system
-  % with large numbers of requests and spawned processes.
-  % Increase the timeout in database significantly to ensure
+  % Warning removing sleep will completely overload the system 
+  % with large numbers of requests and spawned processes. 
+  % Increase the timeout in database significantly to ensure 
   % all updates are done.
   % [ erlang:yield() || _N <- lists:seq(1, 100) ],
-  timer:sleep(1),
+  timer:sleep(1), 
 
   Account1 = rand:uniform(N_accounts),
   Account2 = rand:uniform(N_accounts),
@@ -29,15 +29,13 @@ next(Replicas, N_accounts, Max_amount, Cid) ->
   ignore_responses(),
 
   receive
-    { finish } ->
-      ok
-  after 0 ->
-    next(Replicas, N_accounts, Max_amount, Cid2)
+    finish  -> finish  
+    after 0 -> next(Replicas, N_accounts, Max_amount, Cid2)
+  end.
+    
+ignore_responses() ->
+  receive 
+    {response, _Result} -> ignore_responses()
+    after 0 -> return
   end.
 
-ignore_responses() ->
-  receive
-    _ -> ignore_responses()
-  after 0 ->
-    ok
-  end.
